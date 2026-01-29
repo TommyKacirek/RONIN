@@ -4,13 +4,14 @@ import time
 import os
 import json
 import functools
+import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 class MarketDataService:
     def __init__(self, cache_file="backend/data/market_cache.json", cache_expiry_minutes=5):
-        # 1. Setup Cache Path
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        # 1. Setup Cache Path - Go to Project Root (4 levels up from backend/app/services/market.py)
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         if os.path.isabs(cache_file):
             self.cache_file = cache_file
         else:
@@ -200,7 +201,6 @@ class MarketDataService:
                     return None
 
             # Run all ticker processing in parallel
-            import math # for isinf/isnan check if not imported
             tasks = [process_ticker(orig, san) for orig, san in sanitized_map.items()]
             processed_results = await asyncio.gather(*tasks)
 
@@ -329,25 +329,32 @@ class MarketDataService:
                 
             # Current Price & Stats
             current_price = hist['Close'].iloc[-1]
+            if math.isnan(current_price) or math.isinf(current_price):
+                current_price = 0.0
+                
             prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
+            if math.isnan(prev_close) or math.isinf(prev_close):
+                prev_close = current_price
             
             change_percent = 0.0
             if prev_close > 0:
                 change_percent = ((current_price - prev_close) / prev_close) * 100
                 
-            # Sparkline Data (Simplify to date/close)
+            # Sparkline Data
             sparkline = []
             for date, row in hist.iterrows():
-                # Format: "YYYY-MM-DD" is enough for sparkline usually, or ISO
+                val = float(row['Close'])
+                if math.isnan(val) or math.isinf(val):
+                    val = current_price # Fallback to current
                 sparkline.append({
                     "date": date.strftime('%Y-%m-%d'),
-                    "close": float(row['Close'])
+                    "close": val
                 })
                 
             return {
                 "symbol": symbol,
                 "price": float(current_price),
-                "currency": "USD", # TODO: Get from fast_info if needed, keeping simple
+                "currency": "USD", 
                 "change_percent": float(change_percent),
                 "history": sparkline
             }

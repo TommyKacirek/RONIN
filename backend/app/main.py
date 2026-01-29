@@ -160,11 +160,14 @@ async def stream_watchlist(range: str = "1m"):
         if not watchlist:
              yield f"event: DONE\ndata: \n\n"
              return
-        for symbol in watchlist:
-            # We'll use the async get_ohlcv or similar for streaming if needed, 
-            # or just simple quote.
-            data = await market.get_watchlist_data(symbol, range) 
+        
+        # Parallel fetch
+        tasks = [market.get_watchlist_data(symbol, range) for symbol in watchlist]
+        results = await asyncio.gather(*tasks)
+        
+        for data in results:
             yield f"data: {json.dumps(data)}\n\n"
+            
         yield f"event: DONE\ndata: \n\n"
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
